@@ -34,6 +34,30 @@ import CartonHelpers
 import Foundation
 import SwiftToolchain
 
+
+// Derived from   https://github.com/apple/swift-package-manager/blob/c965d5ab7bcb98baa6139ebe27d0e5765fcff183/Sources/PackagePlugin/ArgumentExtractor.swift#L27
+
+func readOption(args: [String], name: String) -> [String] {
+  var values: [String] = []
+  var idx = 0
+  while idx < args.count {
+    let arg = args[idx]
+    idx += 1
+
+    if arg == "--\(name)" {
+      if idx < args.count {
+        values.append(args[idx])
+        idx += 1
+      }
+    } else if arg.starts(with: "--\(name)=") {
+      values.append(
+        String(arg.dropFirst(2 + name.count + 1))
+      )
+    }
+  }
+  return values
+}
+
 extension Foundation.Process {
   internal static func checkRun(
     _ executableURL: URL, arguments: [String], forwardExit: Bool = false
