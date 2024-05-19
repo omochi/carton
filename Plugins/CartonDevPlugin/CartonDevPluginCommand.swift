@@ -77,8 +77,10 @@ struct CartonDevPluginCommand: CommandPlugin {
       package: context.package
     )
 
-    let tempDirectory = try createTemporaryDirectory(under: context.pluginWorkDirectory)
-    defer { try? FileManager.default.removeItem(atPath: tempDirectory.string) }
+    let tempDirectory = try FileUtils.makeTemporaryDirectory(
+      prefix: "carton-dev-plugin", in: URL(fileURLWithPath: context.pluginWorkDirectory.string)
+    )
+    defer { try? FileManager.default.removeItem(at: tempDirectory) }
     let buildRequestPipe = try createFifo(hint: "build-request", directory: tempDirectory)
     let buildResponsePipe = try createFifo(hint: "build-response", directory: tempDirectory)
 
@@ -132,23 +134,8 @@ struct CartonDevPluginCommand: CommandPlugin {
   }
 }
 
-private func createTemporaryDirectory(under directory: Path) throws -> Path {
-  var template = directory.appending("carton-XXXXXX").string
-  let result = try template.withUTF8 { template in
-    let copy = UnsafeMutableBufferPointer<CChar>.allocate(capacity: template.count + 1)
-    defer { copy.deallocate() }
-    template.copyBytes(to: copy)
-    copy[template.count] = 0
-    guard let result = mkdtemp(copy.baseAddress!) else {
-      throw CartonPluginError("Failed to create a temporary directory")
-    }
-    return String(cString: result)
-  }
-  return Path(result)
-}
-
-private func createFifo(hint: String, directory: Path) throws -> String {
-  let fifoPath = directory.appending("\(hint).fifo").string
+private func createFifo(hint: String, directory: URL) throws -> String {
+  let fifoPath = directory.appendingPathComponent("\(hint).fifo").path
   guard mkfifo(fifoPath, 0o600) == 0 else {
     let error = String(cString: strerror(errno))
     throw CartonPluginError("Failed to create fifo at \(fifoPath): \(error)")

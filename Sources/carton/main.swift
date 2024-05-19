@@ -30,6 +30,7 @@
 //
 // This executable should be eventually removed once SwiftPM provides a way to express those requirements.
 
+import CartonCore
 import CartonHelpers
 import Foundation
 import SwiftToolchain
@@ -99,8 +100,7 @@ func derivePackageCommandArguments(
     packageArguments += ["--disable-sandbox"]
   case "test":
     // 1. Ask the plugin process to generate the build command based on the given options
-    let commandFile = makeTemporaryFile(
-      prefix: "test-build", suffix: "args", in: URL(fileURLWithPath: NSTemporaryDirectory()))
+    let commandFile = try FileUtils.makeTemporaryFile(prefix: "test-build")
     try Foundation.Process.checkRun(
       swiftExec,
       arguments: packageArguments + pluginArguments + [
@@ -130,21 +130,6 @@ func derivePackageCommandArguments(
   }
 
   return packageArguments + pluginArguments + ["carton-\(subcommand)"] + cartonPluginArguments
-}
-
-func makeTemporaryFile(prefix: String, suffix: String, in directory: URL) -> URL {
-  var template = directory.appendingPathComponent("carton-XXXXXX").path
-  let result = template.withUTF8 { template in
-    let copy = UnsafeMutableBufferPointer<CChar>.allocate(capacity: template.count + 1)
-    defer { copy.deallocate() }
-    template.copyBytes(to: copy)
-    copy[template.count] = 0
-    guard mkstemp(copy.baseAddress!) != -1 else {
-      fatalError("Failed to create a temporary directory")
-    }
-    return String(cString: copy.baseAddress!)
-  }
-  return URL(fileURLWithPath: result)
 }
 
 func pluginSubcommand(subcommand: String, argv0: String, arguments: [String]) async throws {
