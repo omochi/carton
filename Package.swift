@@ -110,8 +110,13 @@ let package = Package(
       exclude: ["Utilities/README.md"]
     ),
     .target(
+      name: "CartonCore"
+    ),
+    .target(
       name: "CartonHelpers",
-      dependencies: [],
+      dependencies: [
+        "CartonCore"
+      ],
       exclude: ["Basics/README.md"]
     ),
     .target(name: "WebDriverClient", dependencies: []),
