@@ -77,18 +77,20 @@ struct CartonDevPluginCommand: CommandPlugin {
       package: context.package
     )
 
-    let tempDirectory = try createTemporaryDirectory(under: context.pluginWorkDirectory)
-    defer { try? FileManager.default.removeItem(atPath: tempDirectory.string) }
-    let buildRequestPipe = try createFifo(hint: "build-request", directory: tempDirectory)
-    let buildResponsePipe = try createFifo(hint: "build-response", directory: tempDirectory)
+    let tempDirectory = try makeTemporaryDirectory(
+      prefix: "carton-dev-plugin", in: URL(fileURLWithPath: context.pluginWorkDirectory.string)
+    )
+    defer { try? FileManager.default.removeItem(at: tempDirectory) }
+    let buildRequestPipe = try makeNamedPipeFile(name: "build-request", in: tempDirectory)
+    let buildResponsePipe = try makeNamedPipeFile(name: "build-response", in: tempDirectory)
 
     let frontend = try makeCartonFrontendProcess(
       context: context,
       arguments: [
         "dev",
         "--main-wasm-path", productArtifact.path.string,
-        "--build-request", buildRequestPipe,
-        "--build-response", buildResponsePipe,
+        "--build-request", buildRequestPipe.path,
+        "--build-response", buildResponsePipe.path,
       ]
         + resourcesPaths.flatMap { ["--resources", $0.string] }
         + pathsToWatch.flatMap { ["--watch-path", $0] }
@@ -99,8 +101,8 @@ struct CartonDevPluginCommand: CommandPlugin {
 
     try frontend.run()
 
-    let buildRequestFileHandle = FileHandle(forReadingAtPath: buildRequestPipe)!
-    let buildResponseFileHandle = FileHandle(forWritingAtPath: buildResponsePipe)!
+    let buildRequestFileHandle = FileHandle(forReadingAtPath: buildRequestPipe.path)!
+    let buildResponseFileHandle = FileHandle(forWritingAtPath: buildResponsePipe.path)!
     while let _ = try buildRequestFileHandle.read(upToCount: 1) {
       Diagnostics.remark("[Plugin] Received build request")
       let buildResult = try self.packageManager.build(buildSubset, parameters: parameters)
@@ -132,26 +134,36 @@ struct CartonDevPluginCommand: CommandPlugin {
   }
 }
 
-private func createTemporaryDirectory(under directory: Path) throws -> Path {
-  var template = directory.appending("carton-XXXXXX").string
+private var errnoString: String {
+  String(cString: strerror(errno))
+}
+
+private var temporaryDirectory: URL {
+  URL(fileURLWithPath: NSTemporaryDirectory())
+}
+
+private func makeTemporaryDirectory(prefix: String, in directory: URL? = nil) throws -> URL {
+  let directory = directory ?? temporaryDirectory
+  var template = directory.appendingPathComponent("\(prefix)XXXXXX").path
   let result = try template.withUTF8 { template in
     let copy = UnsafeMutableBufferPointer<CChar>.allocate(capacity: template.count + 1)
     defer { copy.deallocate() }
     template.copyBytes(to: copy)
     copy[template.count] = 0
     guard let result = mkdtemp(copy.baseAddress!) else {
-      throw CartonPluginError("Failed to create a temporary directory")
+      let error = errnoString
+      throw CartonPluginError("Failed to make a temporary directory at \(template): \(error)")
     }
     return String(cString: result)
   }
-  return Path(result)
+  return URL(fileURLWithPath: result)
 }
 
-private func createFifo(hint: String, directory: Path) throws -> String {
-  let fifoPath = directory.appending("\(hint).fifo").string
-  guard mkfifo(fifoPath, 0o600) == 0 else {
-    let error = String(cString: strerror(errno))
-    throw CartonPluginError("Failed to create fifo at \(fifoPath): \(error)")
+private func makeNamedPipeFile(name: String, in directory: URL) throws -> URL {
+  let path = directory.appendingPathComponent("\(name).fifo").path
+  guard mkfifo(path, 0o600) == 0 else {
+    let error = errnoString
+    throw CartonPluginError("Failed to make named pipe at \(path): \(error)")
   }
-  return fifoPath
+  return URL(fileURLWithPath: path)
 }
